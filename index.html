@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>🔬 ESE Interactive - Refractive Scattering</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: 'Segoe UI', -apple-system, sans-serif; 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .header { 
+            text-align: center; 
+            background: white; 
+            padding: 40px; 
+            border-radius: 20px; 
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            margin-bottom: 30px;
+        }
+        h1 { color: #2c3e50; font-size: 2.5em; margin-bottom: 10px; }
+        .subtitle { color: #7f8c8d; font-size: 1.2em; }
+        #plotDiv { 
+            background: white; 
+            border-radius: 20px; 
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            padding: 20px; 
+            height: 700px;
+        }
+        .controls { 
+            background: white; 
+            padding: 25px; 
+            border-radius: 15px; 
+            margin-top: 20px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔬 Интерактивный ESE</h1>
+            <p class="subtitle">Экстремальное рассеяние (ESE) гауссовой рефракционной линзой<br>
+            <small>σ_source ∝ ν⁻¹, α ∝ ν⁻² | Моделирование для RadioAstron/VLBI</small></p>
+        </div>
+        
+        <div id="plotDiv"></div>
+        
+        <div class="controls">
+            <h3>🎮 Управление:</h3>
+            <p><b>α_ref</b> — сила рассеяния на эталонной частоте (8 GHz)<br>
+            <b>σ_ref</b> — размер источника на эталонной частоте<br>
+            <b>ν_ref</b> — эталонная частота (меняет спектр)</p>
+            <p><i>Низкие частоты (5 GHz): сильное рассеяние → широкие пики<br>
+            Высокие частоты (11 GHz): слабое рассеяние → узкие пики</i></p>
+        </div>
+    </div>
+
+    <script>
+        // ГЛАВНАЯ ФУНКЦИЯ ESE (порт вашего Python кода)
+        function mc_ray_shooting(alpha, sigma_source) {
+            const num_beta = 4000;
+            const num_u = 600;
+            
+            // Генерация beta_s (гауссов источник)
+            let beta_s = [];
+            for(let i = 0; i < num_beta; i++) {
+                beta_s.push(Math.random()*6-3 * sigma_source);
+            }
+            
+            // Lensed и unlensed траектории
+            let u_prime_lensed = [];
+            let u_prime_unlensed = [];
+            
+            let u = [];
+            for(let i = -25; i <= 25; i += 50/num_u) u.push(i);
+            
+            for(let b of beta_s) {
+                for(let ui of u) {
+                    // Lensed: u' = u + alpha*u*exp(-u²) + beta_s
+                    let deflection = alpha * ui * Math.exp(-ui*ui);
+                    u_prime_lensed.push(ui + deflection + b);
+                    u_prime_unlensed.push(ui + b);
+                }
+            }
+            
+            // Гистограммы
+            let bins = [];
+            for(let i = -20; i <= 20; i += 40/150) bins.push(i);
+            
+            let hist_lensed = new Array(bins.length-1).fill(0);
+            let hist_unlensed = new Array(bins.length-1).fill(0);
+            
+            for(let val of u_prime_lensed) {
+                for(let i = 0; i < bins.length-1; i++) {
+                    if(val >= bins[i] && val < bins[i+1]) {
+                        hist_lensed[i]++;
+                        break;
+                    }
+                }
+            }
+            
+            for(let val of u_prime_unlensed) {
+                for(let i = 0; i < bins.length-1; i++) {
+                    if(val >= bins[i] && val < bins[i+1]) {
+                        hist_unlensed[i]++;
+                        break;
+                    }
+                }
+            }
+            
+            // Нормализация
+            let bin_centers = [];
+            for(let i = 0; i < bins.length-1; i++) {
+                bin_centers.push((bins[i] + bins[i+1])/2);
+            }
+            
+            let intensity = [];
+            for(let i = 0; i < hist_lensed.length; i++) {
+                intensity.push(hist_unlensed[i] > 0 ? hist_lensed[i]/hist_unlensed[i] : 0);
+            }
+            
+            return {centers: bin_centers, intensity: intensity};
+        }
+        
+        // ИНИЦИАЛИЗАЦИЯ
+        let freqs = [5.0, 8.0, 11.0];
+        let colors = ['#e74c3c', '#3498db', '#27ae60'];
+        let labels = ['5 GHz', '8 GHz (ref)', '11 GHz'];
+        
+        function updatePlot() {
+            let alpha_ref = parseFloat(document.getElementById('alpha').value);
+            let sigma_ref = parseFloat(document.getElementById('sigma').value);
+            let nu_ref = parseFloat(document.getElementById('nu_ref').value);
+            
+            let traces = [];
+            
+            for(let i = 0; i < freqs.length; i++) {
+                let nu = freqs[i];
+                let scale_alpha = Math.pow(nu_ref/nu, 2);
+                let scale_sigma = nu_ref/nu;
+                
+                let result = mc_ray_shooting(alpha_ref * scale_alpha, sigma_ref * scale_sigma);
+                
+                traces.push({
+                    x: result.centers,
+                    y: result.intensity,
+                    type: 'scatter',
+                    mode: 'lines',
+                    line: {color: colors[i], width: 4},
+                    name: labels[i] + ` (α=${(alpha_ref*scale_alpha).toFixed(1)})`
+                });
+            }
+            
+            let layout = {
+                title: {
+                    text: `🔬 ESE Refractive Scattering<br>
+                    <sub>α_ref=${alpha_ref.toFixed(1)}, σ_ref=${sigma_ref.toFixed(2)}, ν_ref=${nu_ref} GHz | σ∝ν⁻¹, α∝ν⁻²</sub>`,
+                    font: {size: 20}
+                },
+                xaxis: {title: "u' (normalized coordinates)", range: [-18, 18]},
+                yaxis: {title: "Magnification μ = I_lens / I_unlens", gridcolor: 'rgba(0,0,0,0.1)'},
+                plot_bgcolor: 'white',
+                paper_bgcolor: 'white',
+                font: {family: 'Segoe UI, sans-serif'},
+                legend: {x: 0, y: 1},
+                height: 650,
+                margin: {l: 60, r: 40, t: 80, b: 60}
+            };
+            
+            Plotly.newPlot('plotDiv', traces, layout);
+        }
+        
+        // СЛАЙДЕРЫ HTML
+        document.write(`
+            <div class="controls">
+                <label>α_ref (8 GHz): <span id="alpha-val">25.0</span></label>
+                <input type="range" id="alpha" min="5" max="50" value="25" step="1" 
+                       style="width:100%" oninput="document.getElementById('alpha-val').textContent=this.value; updatePlot()">
+                <br><br>
+                <label>σ_ref (8 GHz): <span id="sigma-val">0.83</span></label>
+                <input type="range" id="sigma" min="0.2" max="2.0" value="0.83" step="0.05" 
+                       style="width:100%" oninput="document.getElementById('sigma-val').textContent=this.value.toFixed(2); updatePlot()">
+                <br><br>
+                <label>ν_ref (GHz): <span id="nu-val">8.0</span></label>
+                <input type="range" id="nu_ref" min="4" max="12" value="8" step="0.5" 
+                       style="width:100%" oninput="document.getElementById('nu-val').textContent=this.value; updatePlot()">
+            </div>
+        `);
+        
+        // Инициализация
+        updatePlot();
+    </script>
+</body>
+</html>
