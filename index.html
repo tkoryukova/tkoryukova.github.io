@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>🔬 ESE Multi-Frequency Interactive</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: 'Segoe UI', sans-serif; 
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            min-height: 100vh; padding: 20px;
+        }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .header { 
+            text-align: center; background: rgba(255,255,255,0.95); 
+            padding: 40px; border-radius: 20px; box-shadow: 0 15px 35px rgba(0,0,0,0.3);
+            margin-bottom: 30px; 
+        }
+        h1 { color: #2c3e50; font-size: 2.5em; margin-bottom: 10px; }
+        .subtitle { color: #34495e; font-size: 1.2em; }
+        #plotDiv { 
+            background: white; border-radius: 20px; box-shadow: 0 15px 40px rgba(0,0,0,0.25);
+            padding: 25px; height: 650px; margin-bottom: 25px;
+        }
+        .controls { 
+            background: rgba(255,255,255,0.95); padding: 30px; border-radius: 20px; 
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        .slider-group { margin: 20px 0; }
+        .slider-group label { 
+            display: block; font-weight: bold; color: #2c3e50; margin-bottom: 8px; font-size: 1.1em;
+        }
+        .slider-group input[type="range"] { 
+            width: 100%; height: 8px; border-radius: 5px; background: #ecf0f1; outline: none; 
+            -webkit-appearance: none;
+        }
+        .slider-group input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none; height: 25px; width: 25px; border-radius: 50%; 
+            background: #3498db; cursor: pointer; box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        }
+        .slider-value { 
+            background: #3498db; color: white; padding: 5px 12px; border-radius: 20px; 
+            font-weight: bold; display: inline-block; margin-left: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔬 ESE Multi-Frequency</h1>
+            <p class="subtitle">Monte Carlo Ray Shooting: Refractive Scattering<br>
+            <small>α ∝ ν⁻², σ_source ∝ ν⁻¹ | Частоты: f/2, f, 2f</small></p>
+        </div>
+        
+        <div id="plotDiv"></div>
+        
+        <div class="controls">
+            <div class="slider-group">
+                <label>alpha_ref <span class="slider-value" id="alpha-val">25.0</span></label>
+                <input type="range" id="alpha" min="5" max="50" value="25" step="0.5">
+            </div>
+            <div class="slider-group">
+                <label>sigma_source_ref <span class="slider-value" id="sigma-val">0.83</span></label>
+                <input type="range" id="sigma" min="0.2" max="2.0" value="0.83" step="0.01">
+            </div>
+            <div class="slider-group">
+                <label>base_freq [GHz] <span class="slider-value" id="base-val">8.0</span></label>
+                <input type="range" id="base_freq" min="4" max="16" value="8" step="0.5">
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ✅ ОДНА функция mc_ray_shooting (исправлено!)
+        function mc_ray_shooting(alpha, sigma_source) {
+            const num_beta = 4000;  // уменьшено для скорости
+            const num_u = 600;
+            const num_bins = 100;
+            
+            // Гауссов генератор (Box-Muller)
+            let beta_s_samples = [];
+            for(let i = 0; i < num_beta; i++) {
+                let u = 0, v = 0;
+                while(u === 0) u = Math.random();
+                while(v === 0) v = Math.random();
+                let r = Math.sqrt(-2*Math.log(u));
+                let theta = 2*Math.PI*v;
+                beta_s_samples.push(sigma_source * r * Math.cos(theta));
+            }
+            
+            // u сетка
+            let u = [];
+            for(let i = 0; i <= num_u; i++) {
+                u.push(-25 + 50*i/num_u);
+            }
+            
+            // Lensed rays
+            let u_prime_lensed = [];
+            for(let beta_s of beta_s_samples) {
+                for(let ui of u) {
+                    let deflection = alpha * ui * Math.exp(-ui*ui);
+                    u_prime_lensed.push(ui + deflection + beta_s);
+                }
+            }
+            
+            // Unlensed rays
+            let u_prime_unlensed = [];
+            for(let beta_s of beta_s_samples) {
+                for(let ui of u) {
+                    u_prime_unlensed.push(ui + beta_s);
+                }
+            }
+            
+            // Бины
+            let bins = [];
+            for(let i = 0; i <= num_bins; i++) {
+                bins.push(-20 + 40*i/num_bins);
+            }
+            
+            // Гистограммы
+            let hist_lensed = new Array(num_bins).fill(0);
+            let hist_unlensed = new Array(num_bins).fill(0);
+            
+            for(let val of u_prime_lensed) {
+                for(let i = 0; i < num_bins; i++) {
+                    if(val >= bins[i] && val < bins[i+1]) {
+                        hist_lensed[i]++;
+                        break;
+                    }
+                }
+            }
+            
+            for(let val of u_prime_unlensed) {
+                for(let i = 0; i < num_bins; i++) {
+                    if(val >= bins[i] && val < bins[i+1]) {
+                        hist_unlensed[i]++;
+                        break;
+                    }
+                }
+            }
+            
+            // Результат
+            let bin_centers = [];
+            let intensity = [];
+            for(let i = 0; i < num_bins; i++) {
+                bin_centers.push((bins[i] + bins[i+1])/2);
+                intensity.push(hist_unlensed[i] > 0 ? hist_lensed[i]/hist_unlensed[i] : 0);
+            }
+            
+            return {bin_centers: bin_centers, intensity: intensity};
+        }
+        
+        // ✅ updatePlot (исправлено!)
+        function updatePlot() {
+            let alpha_ref = parseFloat(document.getElementById('alpha').value);
+            let sigma_ref = parseFloat(document.getElementById('sigma').value);
+            let base_freq = parseFloat(document.getElementById('base_freq').value);
+            
+            let freqs = [base_freq/2, base_freq, base_freq*2];
+            let colors = ['#e74c3c', '#3498db', '#27ae60'];
+            
+            let traces = [];
+            for(let i = 0; i < freqs.length; i++) {
+                let nu = freqs[i];
+                let scale_alpha = Math.pow(base_freq/nu, 2);
+                let scale_sigma = base_freq/nu;
+                
+                let result = mc_ray_shooting(
+                    alpha_ref * scale_alpha, 
+                    sigma_ref * scale_sigma
+                );
+                
+                traces.push({
+                    x: result.bin_centers,
+                    y: result.intensity,
+                    type: 'scatter',
+                    mode: 'lines',
+                    line: {color: colors[i], width: 4},
+                    name: `${nu.toFixed(1)} GHz`
+                });
+            }
+            
+            let layout = {
+                title: `ESE: α_ref=${alpha_ref.toFixed(1)}, σ_ref=${sigma_ref.toFixed(2)}, f₀=${base_freq} GHz`,
+                xaxis: {title: "u'", range: [-18, 18]},
+                yaxis: {title: "I / I_unlensed"},
+                plot_bgcolor: 'white',
+                height: 600
+            };
+            
+            Plotly.newPlot('plotDiv', traces, layout);
+        }
+        
+        // ✅ СЛАЙДЕРЫ
+        document.getElementById('alpha').oninput = function() {
+            document.getElementById('alpha-val').textContent = this.value;
+            updatePlot();
+        };
+        document.getElementById('sigma').oninput = function() {
+            document.getElementById('sigma-val').textContent = parseFloat(this.value).toFixed(2);
+            updatePlot();
+        };
+        document.getElementById('base_freq').oninput = function() {
+            document.getElementById('base-val').textContent = this.value;
+            updatePlot();
+        };
+        
+        // ✅ Запуск
+        updatePlot();
+    </script>
+</body>
+</html>
